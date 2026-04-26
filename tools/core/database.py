@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 
+
 def open_db(path: Path) -> sqlite3.Connection:
     """Opens a SQLite connection and initializes the FTS5 schema."""
     path.parent.mkdir(parents=True, exist_ok=True)
