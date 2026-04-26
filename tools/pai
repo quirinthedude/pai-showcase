@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+import os
+import json
+from pathlib import Path
+from core.database import open_db, rebuild_fts
+from core.rag import build_query_plan, build_fts_query, retrieve, assess_evidence
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "demo" / "showcase.db"
+
+def cmd_ingest(args):
+    target_dir = Path(args.directory).resolve()
+    if not target_dir.is_dir():
+        print(f"Error: Directory not found: {target_dir}")
+        sys.exit(1)
+
+    print(f"Ingesting markdown files from {target_dir}...")
+    chunks = []
+    
+    # Very simple markdown paragraph chunking for demo purposes
+    for filepath in target_dir.glob("*.md"):
+        content = filepath.read_text(encoding="utf-8")
+        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+        
+        doc_title = filepath.stem.replace("_", " ").title()
+        
+        for i, para in enumerate(paragraphs):
+            # Skip very short paragraphs
+            if len(para) < 20:
+                continue
+                
+            chunks.append({
+                "doc_title": doc_title,
+                "source": "demo_corpus",
+                "path": str(filepath.relative_to(BASE_DIR)),
+                "text": para
+            })
+
+    if not chunks:
+        print("No valid chunks found. Make sure there are .md files with content.")
+        sys.exit(1)
+
+    con = open_db(DB_PATH)
+    rebuild_fts(con, chunks)
+    con.close()
+    print("Ingestion complete.")
+
+def cmd_ask(args):
+    query = args.query
+    
+    con = open_db(DB_PATH)
+    
+    # Explain Mode Output
+    if args.explain:
+        print("\n" + "="*50)
+        print("🔍 PAI TRANSPARENT RETRIEVAL DEBUGGER")
+        print("="*50)
+        
+        plan = build_query_plan(query)
+        print(f"1. Query Parsing:")
+        print(f"   Raw Query : '{plan.raw_query}'")
+        print(f"   Extracted Phrases: {plan.phrases}")
+        print(f"   FTS Terms : {plan.terms}")
+        
+        fts_q = build_fts_query(plan)
+        print(f"\n2. SQLite FTS5 Query:")
+        print(f"   MATCH string: {fts_q}")
+
+    # Execute Retrieval
+    fts_q, contexts = retrieve(con, query, k=3)
+    
+    if args.explain:
+        print("\n3. Scoring Adjustments:")
+        if not contexts:
+            print("   (No chunks retrieved)")
+        for i, c in enumerate(contexts):
+            print(f"   Chunk {i+1} | {c['doc_title']}")
+            print(f"     Base BM25: {c['fts_base_score']:.4f}")
+            print(f"     Exact Phrase Boost: {'Yes (+30%)' if c['contains_exact_phrase'] else 'No'}")
+            print(f"     Final Score: {c['score']:.4f}")
+            print(f"     Preview: {c['text'][:60]}...")
+
+    # Execute Grounding
+    grounding_status = assess_evidence(query, contexts)
+    
+    if args.explain:
+        print(f"\n4. Grounding Assessment:")
+        print(f"   Decision: {grounding_status}")
+        print("="*50 + "\n")
+
+    # Standard Dry-Run Output
+    if not args.explain:
+        print(f"\n[DRY RUN] Query: {query}")
+        print(f"Grounding Status: {grounding_status}\n")
+        
+        if grounding_status == "INSUFFICIENT_CONTEXT":
+            print("Action: HALT. Refusing LLM call to prevent hallucination.")
+        else:
+            print("Retrieved Contexts:")
+            for i, c in enumerate(contexts):
+                print(f"--- #{i+1} | Score: {c['score']:.2f} | {c['doc_title']}")
+                print(f"{c['text']}\n")
+                
+            if grounding_status == "WEAKLY_GROUNDED":
+                print("Action: Appending WEAK_CONTEXT warning to LLM prompt. Proceeding to LLM...")
+            else:
+                print("Action: Proceeding to LLM...")
+
+    con.close()
+
+def main():
+    parser = argparse.ArgumentParser(description="PAI Showcase CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Ingest command
+    parser_ingest = subparsers.add_parser("ingest", help="Ingest a directory of markdown files")
+    parser_ingest.add_argument("directory", help="Path to the directory containing .md files")
+
+    # Ask command
+    parser_ask = subparsers.add_parser("ask", help="Ask a question against the corpus")
+    parser_ask.add_argument("query", help="The question to ask")
+    parser_ask.add_argument("--dry-run", action="store_true", help="Execute retrieval without calling the LLM")
+    parser_ask.add_argument("--explain", action="store_true", help="Print transparent debugging info for the retrieval pipeline")
+
+    args = parser.parse_args()
+
+    # V1 Showcase forces dry-run behavior
+    if args.command == "ask" and not (args.dry_run or args.explain):
+        print("Note: Showcase V1 is dry-run only. Enabling --dry-run automatically.")
+        args.dry_run = True
+
+    if args.command == "ingest":
+        cmd_ingest(args)
+    elif args.command == "ask":
+        cmd_ask(args)
+
+if __name__ == "__main__":
+    main()
