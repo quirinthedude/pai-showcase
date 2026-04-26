@@ -1,48 +1,86 @@
-# PAI Showcase (V1)
+# PAI Showcase
 
-**A 2-minute demonstration of deterministic RAG architecture, SQLite FTS5 search, and system-controlled grounding.**
+**A compact demonstration of deterministic RAG retrieval, SQLite FTS5 search, and
+system-controlled grounding.**
 
-This repository is a sanitized, minimal showcase extracted from the larger "PAI – Personal AI Orchestrator" system. It focuses purely on the mathematical heuristics of retrieval and grounding, completely isolating the retrieval layer from the LLM. 
+This repository is a sanitized showcase extracted from the larger **PAI - Personal AI
+Orchestrator** system. The original project contains personal data, private memories,
+conversation history, and more complex orchestration logic. This public version isolates one
+reviewable technical slice: retrieval, reranking, and pre-LLM grounding decisions.
 
 ## What This Showcases
-- **CLI-First Architecture:** A clean, procedural entrypoint.
-- **SQLite FTS5 Mastery:** Leveraging native database full-text search with exact phrase tracking.
-- **Deterministic Reranking:** BM25 scoring adjusted with term overlap math and phrase-match multipliers.
-- **System-Controlled Grounding:** The `assess_evidence` algorithm that programmatically determines if the retrieved context is `GROUNDED`, `WEAKLY_GROUNDED`, or `INSUFFICIENT_CONTEXT` *before* hitting an LLM.
 
-## What is Intentionally Excluded
-To protect private data and maintain a 2-minute reviewability constraint, the following elements of the real PAI system are completely omitted:
-- **Private Data & Memories:** The JSON archiving, personal memory stores, and conversational histories.
-- **Private personalization layers:** Removed all personal profile, memory, and identity-related prompt components.
-- **LLM Integration:** V1 is strictly a "dry-run" showcase. No API keys or local Ollama instances are required to test the retrieval logic.
-- **Complex Routing:** Multi-corpus routing has been simplified to a single demo corpus.
+- **CLI-first architecture:** a small command-line entrypoint for ingestion and retrieval.
+- **SQLite FTS5 retrieval:** native full-text search with exact phrase handling.
+- **Deterministic reranking:** BM25 adjusted with phrase matches, token overlap, and a small
+  length penalty.
+- **System-controlled grounding:** `assess_evidence` classifies retrieved context as
+  `GROUNDED`, `WEAKLY_GROUNDED`, or `INSUFFICIENT_CONTEXT` before any LLM call would happen.
+- **Transparent debugging:** `--explain` prints the query plan, FTS5 query, scoring signals,
+  and final grounding decision.
 
-## Setup & Ingestion
-The showcase relies on a generated SQLite database. You must build it first.
+## What Is Intentionally Excluded
+
+To protect private data and keep the review path short, this showcase omits:
+
+- private memory stores, profile data, JSON archives, and conversation history
+- personalization layers and identity-related prompt components
+- live LLM integration, API keys, and local model dependencies
+- multi-corpus routing and the broader orchestration layer
+
+## Requirements
+
+- Python 3.10+
+- SQLite with FTS5 enabled, which is included in standard Python builds on most systems
+- No runtime Python dependencies for the demo path
+
+## Quick Start
+
+The demo database is generated locally and ignored by git.
+
 ```bash
-# Ingest the public domain philosophical texts into FTS5
-python tools/pai ingest demo/sample_corpus
+python3 tools/pai ingest demo/sample_corpus
 ```
 
 ## Demo Commands
 
-### 1. Grounded Query (Dry-Run)
-Test the retrieval on a valid topic:
+Grounded query:
+
 ```bash
-python tools/pai ask "what is in our control?" --dry-run
+python3 tools/pai ask "what is in our control?" --dry-run
 ```
 
-### 2. Graceful Degradation (Insufficient Context)
-Test the system's refusal to hallucinate:
+Graceful degradation for out-of-corpus questions:
+
 ```bash
-python tools/pai ask "what is the recipe for chocolate cake?" --dry-run
+python3 tools/pai ask "what is the recipe for chocolate cake?" --dry-run
 ```
 
-### 3. The Transparent Debugger (`--explain`)
-To see the exact math and logic happening under the hood, use the explain flag. This outputs the query parsing, FTS5 SQL, BM25 scoring adjustments, and final grounding decision.
+Transparent debugger:
+
 ```bash
-python tools/pai ask '"our control"' --explain
+python3 tools/pai ask '"our control"' --explain
 ```
 
-## Architecture Pipeline
-For a deeper dive into how the query flows through the system, please see [docs/architecture.md](docs/architecture.md).
+## Development Checks
+
+The core tests can run with the Python standard library:
+
+```bash
+python3 -m unittest
+```
+
+Optional development tools are declared in `pyproject.toml`:
+
+```bash
+python3 -m pip install -e ".[dev]"
+python3 -m pytest
+python3 -m ruff check .
+```
+
+The same checks are wired into GitHub Actions in `.github/workflows/ci.yml`.
+
+## Architecture
+
+For a deeper look at the retrieval and grounding pipeline, see
+[docs/architecture.md](docs/architecture.md).

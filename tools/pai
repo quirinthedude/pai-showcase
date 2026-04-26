@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import sys
-import os
-import json
 from pathlib import Path
+
 from core.database import open_db, rebuild_fts
-from core.rag import build_query_plan, build_fts_query, retrieve, assess_evidence
+from core.rag import assess_evidence, build_fts_query, build_query_plan, retrieve
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "demo" / "showcase.db"
@@ -59,13 +58,13 @@ def cmd_ask(args):
         print("="*50)
         
         plan = build_query_plan(query)
-        print(f"1. Query Parsing:")
+        print("1. Query Parsing:")
         print(f"   Raw Query : '{plan.raw_query}'")
         print(f"   Extracted Phrases: {plan.phrases}")
         print(f"   FTS Terms : {plan.terms}")
         
         fts_q = build_fts_query(plan)
-        print(f"\n2. SQLite FTS5 Query:")
+        print("\n2. SQLite FTS5 Query:")
         print(f"   MATCH string: {fts_q}")
 
     # Execute Retrieval
@@ -76,9 +75,10 @@ def cmd_ask(args):
         if not contexts:
             print("   (No chunks retrieved)")
         for i, c in enumerate(contexts):
+            phrase_boost = "Yes (+30%)" if c['contains_exact_phrase'] else "No"
             print(f"   Chunk {i+1} | {c['doc_title']}")
             print(f"     Base BM25: {c['fts_base_score']:.4f}")
-            print(f"     Exact Phrase Boost: {'Yes (+30%)' if c['contains_exact_phrase'] else 'No'}")
+            print(f"     Exact Phrase Boost: {phrase_boost}")
             print(f"     Final Score: {c['score']:.4f}")
             print(f"     Preview: {c['text'][:60]}...")
 
@@ -86,7 +86,7 @@ def cmd_ask(args):
     grounding_status = assess_evidence(query, contexts)
     
     if args.explain:
-        print(f"\n4. Grounding Assessment:")
+        print("\n4. Grounding Assessment:")
         print(f"   Decision: {grounding_status}")
         print("="*50 + "\n")
 
@@ -121,8 +121,16 @@ def main():
     # Ask command
     parser_ask = subparsers.add_parser("ask", help="Ask a question against the corpus")
     parser_ask.add_argument("query", help="The question to ask")
-    parser_ask.add_argument("--dry-run", action="store_true", help="Execute retrieval without calling the LLM")
-    parser_ask.add_argument("--explain", action="store_true", help="Print transparent debugging info for the retrieval pipeline")
+    parser_ask.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Execute retrieval without calling the LLM",
+    )
+    parser_ask.add_argument(
+        "--explain",
+        action="store_true",
+        help="Print transparent debugging info for the retrieval pipeline",
+    )
 
     args = parser.parse_args()
 

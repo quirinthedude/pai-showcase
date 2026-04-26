@@ -1,11 +1,13 @@
 import re
 import sqlite3
-from typing import Any, Dict, List, Tuple
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Tuple
 
 STOPWORDS = {
     # English
     "the", "a", "an", "and", "or", "of", "in", "on", "to", "for", "with",
+    "is", "are", "was", "were", "be", "being", "been", "what", "who", "where",
+    "when", "why", "how",
     # German
     "und", "oder", "ein", "eine", "einer", "einem", "einen", "der", "die", "das",
     "des", "dem", "den", "ist", "sind", "war", "waren", "wird", "werden", "wie",
@@ -122,9 +124,12 @@ def retrieve(
     for i, r in enumerate(rows):
         text = r[3] or ""
         text_lower = text.lower()
-        
-        # Calculate Signals
-        term_overlap_count = sum(1 for t in plan.terms if t in text_lower)
+
+        term_overlap_count = sum(
+            1
+            for t in plan.terms
+            if re.search(r"\b" + re.escape(t) + r"\b", text_lower)
+        )
         contains_exact_phrase = False
         if plan.phrases:
             contains_exact_phrase = any(p in text_lower for p in plan.phrases)
@@ -163,40 +168,34 @@ def assess_evidence(query: str, contexts: List[Dict[str, Any]], min_hits: int = 
     if not contexts:
         return "INSUFFICIENT_CONTEXT"
 
-    toks = re.findall(r"[A-Za-z0-9ÄÖÜäöüß]+", query)
-    fts_tokens = [t.lower() for t in toks if t.lower() not in STOPWORDS and (len(t) > 1 or t.isdigit())]
-    detected_phrases = [m.group(0) for m in re.finditer(r"\b[A-Za-zÄÖÜäöüß]+\s+\d+\b", query)]
+    plan = build_query_plan(query)
+    fts_tokens = plan.terms
+    required_phrases = plan.phrases
 
     term_overlap_max = 0
     exact_phrase_match = False
-    single_token_max_freq = 0
 
     for c in contexts:
         text_lower = c.get("text", "").lower()
-        
+
         if not exact_phrase_match:
-            for p in detected_phrases:
+            for p in required_phrases:
                 if p.lower() in text_lower:
                     exact_phrase_match = True
 
         overlap = 0
-        freq = 0
         for t in fts_tokens:
             matches = len(re.findall(r'\b' + re.escape(t) + r'\b', text_lower))
             if matches > 0:
                 overlap += 1
-                freq += matches
-                
+
         if overlap > term_overlap_max:
             term_overlap_max = overlap
-            
-        if len(fts_tokens) == 1 and freq > single_token_max_freq:
-            single_token_max_freq = freq
 
     if term_overlap_max == 0:
         return "INSUFFICIENT_CONTEXT"
 
-    if detected_phrases and not exact_phrase_match:
+    if required_phrases and not exact_phrase_match:
         return "WEAKLY_GROUNDED"
 
     required_overlap = max(1, len(fts_tokens) - 1)
